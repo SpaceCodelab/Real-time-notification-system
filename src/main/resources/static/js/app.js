@@ -195,7 +195,7 @@ function connectWS() {
 
       // Subscribe to user-specific notification queue
       client.subscribe(
-        `/user/${State.username}/queue/notifications`,
+        '/user/queue/notifications',
         (frame) => {
           const notif = JSON.parse(frame.body);
           onRealtimeNotification(notif);
