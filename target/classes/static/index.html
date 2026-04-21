@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NotifySystem — Real-Time Notifications</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <!-- SockJS + StompJS via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7/bundles/stomp.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!--  AUTH SCREEN                                               -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="auth-screen" class="auth-screen">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <div class="brand-icon">⚡</div>
+      <h1>NotifySystem</h1>
+      <p>Real-Time Notification Platform</p>
+    </div>
+
+    <!-- Tabs -->
+    <div class="auth-tabs">
+      <button class="tab-btn active" id="tab-login"    onclick="switchTab('login')">Sign In</button>
+      <button class="tab-btn"        id="tab-register" onclick="switchTab('register')">Register</button>
+    </div>
+
+    <!-- Login Form -->
+    <form id="login-form" class="auth-form" onsubmit="handleLogin(event)">
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" id="login-username" placeholder="admin or demo" required autocomplete="username" />
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password" />
+      </div>
+      <div id="login-error" class="form-error hidden"></div>
+      <button type="submit" class="btn-primary" id="login-btn">
+        <span class="btn-text">Sign In</span>
+        <span class="btn-spinner hidden">⏳</span>
+      </button>
+      <div class="auth-hint">
+        <div><strong>Admin:</strong> admin / admin123</div>
+        <div><strong>Demo:</strong> demo / demo123</div>
+      </div>
+    </form>
+
+    <!-- Register Form -->
+    <form id="register-form" class="auth-form hidden" onsubmit="handleRegister(event)">
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" id="reg-username" placeholder="Choose a username" required minlength="3" maxlength="50" />
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="reg-email" placeholder="your@email.com" required />
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="reg-password" placeholder="Min 6 characters" required minlength="6" />
+      </div>
+      <div id="reg-error" class="form-error hidden"></div>
+      <button type="submit" class="btn-primary" id="reg-btn">
+        <span class="btn-text">Create Account</span>
+        <span class="btn-spinner hidden">⏳</span>
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!--  DASHBOARD                                                 -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="dashboard" class="dashboard hidden">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">⚡ NotifySystem</div>
+    </div>
+    <div class="header-right">
+      <div class="ws-status" id="ws-status" title="WebSocket connection status">
+        <span class="ws-dot"></span>
+        <span id="ws-status-text">Connecting…</span>
+      </div>
+      <div class="notif-bell" id="bell-btn" onclick="toggleNotifPanel()" title="Notifications">
+        🔔
+        <span class="badge hidden" id="bell-badge">0</span>
+      </div>
+      <div class="user-info">
+        <span id="header-username"></span>
+        <span class="role-badge" id="header-role"></span>
+      </div>
+      <button class="btn-logout" onclick="handleLogout()">Sign Out</button>
+    </div>
+  </header>
+
+  <!-- Main Layout -->
+  <div class="layout">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <nav>
+        <div class="nav-item active" onclick="showSection('all')">
+          <span>📋</span> All Notifications
+          <span class="nav-count" id="nav-total">0</span>
+        </div>
+        <div class="nav-item" onclick="showSection('unread')">
+          <span>🔵</span> Unread
+          <span class="nav-count" id="nav-unread">0</span>
+        </div>
+        <div class="nav-item admin-only hidden" onclick="showSection('send')">
+          <span>📤</span> Send Notification
+        </div>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="stat-box">
+          <div class="stat-label">Total</div>
+          <div class="stat-value" id="stat-total">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Unread</div>
+          <div class="stat-value accent" id="stat-unread">0</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Content -->
+    <main class="content">
+
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <div id="section-title" class="section-title">All Notifications</div>
+        <div class="toolbar-actions">
+          <button class="btn-secondary" onclick="refreshNotifications()" title="Refresh">↻ Refresh</button>
+          <button class="btn-secondary" onclick="markAllRead()" id="mark-all-btn">✓ Mark All Read</button>
+        </div>
+      </div>
+
+      <!-- Notification List Section -->
+      <div id="section-all" class="section">
+        <div id="notif-list" class="notif-list">
+          <div class="loading-state" id="list-loading">Loading notifications…</div>
+          <div class="empty-state hidden" id="list-empty">
+            <div class="empty-icon">🔕</div>
+            <div>No notifications yet</div>
+            <div class="empty-sub">They'll appear here in real time</div>
+          </div>
+        </div>
+        <!-- Pagination -->
+        <div class="pagination" id="pagination">
+          <button class="btn-secondary" id="prev-btn" onclick="changePage(-1)" disabled>← Prev</button>
+          <span id="page-info">Page 1</span>
+          <button class="btn-secondary" id="next-btn" onclick="changePage(1)" disabled>Next →</button>
+        </div>
+      </div>
+
+      <!-- Unread Section -->
+      <div id="section-unread" class="section hidden">
+        <div id="unread-list" class="notif-list">
+          <div class="empty-state" id="unread-empty">
+            <div class="empty-icon">✅</div>
+            <div>All caught up!</div>
+            <div class="empty-sub">No unread notifications</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Send Notification Section (Admin only) -->
+      <div id="section-send" class="section hidden">
+        <div class="send-card">
+          <h2>Send Notification</h2>
+          <p class="send-sub">Deliver a notification to a specific user or broadcast to everyone.</p>
+          <form onsubmit="handleSendNotification(event)" class="send-form">
+            <div class="form-row">
+              <div class="form-group">
+                <label>Title *</label>
+                <input type="text" id="send-title" placeholder="Notification title" required maxlength="200" />
+              </div>
+              <div class="form-group">
+                <label>Type *</label>
+                <select id="send-type" required>
+                  <option value="INFO">ℹ️  Info</option>
+                  <option value="SUCCESS">✅  Success</option>
+                  <option value="WARNING">⚠️  Warning</option>
+                  <option value="ALERT">🔔  Alert</option>
+                  <option value="ERROR">❌  Error</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Priority</label>
+                <select id="send-priority">
+                  <option value="LOW">Low</option>
+                  <option value="NORMAL" selected>Normal</option>
+                  <option value="HIGH">High</option>
+                  <option value="CRITICAL">Critical</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Target User <small>(leave blank to broadcast)</small></label>
+                <input type="text" id="send-target" placeholder="username or blank for all" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Message *</label>
+              <textarea id="send-message" placeholder="Notification message…" required rows="3" maxlength="2000"></textarea>
+            </div>
+            <div id="send-error" class="form-error hidden"></div>
+            <div id="send-success" class="form-success hidden"></div>
+            <button type="submit" class="btn-primary" id="send-btn">
+              <span class="btn-text">📤 Send Notification</span>
+            </button>
+          </form>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!--  NOTIFICATION SLIDE PANEL                                  -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="notif-panel" class="notif-panel hidden">
+  <div class="panel-header">
+    <span>Recent Notifications</span>
+    <button onclick="toggleNotifPanel()">✕</button>
+  </div>
+  <div id="panel-list" class="panel-list"></div>
+</div>
+<div id="panel-overlay" class="panel-overlay hidden" onclick="toggleNotifPanel()"></div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!--  TOAST CONTAINER                                           -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="toast-container" class="toast-container"></div>
+
+<script src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,75 @@
+version: '3.9'
+
+# ═══════════════════════════════════════════════════════════════
+# NotifySystem — Docker Compose
+# Brings up: app + PostgreSQL
+# Usage:
+#   Dev (H2):  docker compose up app-dev
+#   Prod (PG): docker compose up
+# ═══════════════════════════════════════════════════════════════
+
+services:
+
+  # ─── PostgreSQL ─────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: notifysystem-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       notifydb
+      POSTGRES_USER:     notifyuser
+      POSTGRES_PASSWORD: changeme
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notifyuser -d notifydb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Spring Boot App (Production — PostgreSQL) ───────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: notifysystem-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_HOST:      postgres
+      DB_PORT:      5432
+      DB_NAME:      notifydb
+      DB_USER:      notifyuser
+      DB_PASSWORD:  changeme
+      JWT_SECRET:   REPLACE_WITH_STRONG_SECRET_AT_LEAST_64_CHARS_BASE64_ENCODED
+      JWT_EXPIRATION: 86400000
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  # ─── Dev mode (H2, no PostgreSQL needed) ─────────────────────
+  app-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: notifysystem-dev
+    environment:
+      SPRING_PROFILES_ACTIVE: default
+    ports:
+      - "8080:8080"
+    profiles:
+      - dev
+
+volumes:
+  pgdata:
+    driver: local
