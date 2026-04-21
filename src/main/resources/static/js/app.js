@@ -19,6 +19,7 @@ const State = {
   totalPages:  0,
   totalItems:  0,
   unreadCount: 0,
+  notifications: [],
   currentSection: 'all',
   panelOpen:   false,
   recentNotifs: [],   // for the slide panel (last 15)
@@ -148,6 +149,7 @@ function handleLogout() {
   disconnectWS();
   sessionStorage.clear();
   State.token = State.username = State.email = State.role = null;
+  State.notifications = [];
   State.recentNotifs = [];
   document.getElementById('notif-list').innerHTML = '';
   document.getElementById('panel-list').innerHTML = '';
@@ -248,6 +250,11 @@ function onRealtimeNotification(notif) {
   State.unreadCount++;
   updateBadge();
 
+  State.notifications.unshift(notif);
+  if (State.notifications.length > PAGE_SIZE) {
+    State.notifications = State.notifications.slice(0, PAGE_SIZE);
+  }
+
   // Show toast
   showToast(notif);
 
@@ -306,10 +313,15 @@ async function loadNotifications(page = 0) {
     State.currentPage = number;
     State.totalPages  = totalPages;
     State.totalItems  = totalElements;
+    State.notifications = content;
 
     renderNotifList(content);
     renderPagination(number, totalPages);
     updateStats();
+
+    if (State.currentSection === 'unread') {
+      renderUnreadSection();
+    }
   } catch (err) {
     showListState('error', err.message);
   }
@@ -319,6 +331,7 @@ function renderNotifList(items) {
   const container = document.getElementById('notif-list');
 
   if (!items || items.length === 0) {
+    container.innerHTML = '';
     showListState('empty');
     return;
   }
@@ -375,6 +388,10 @@ function prependNotifToList(notif) {
   // Update total count
   State.totalItems++;
   document.getElementById('nav-total').textContent = State.totalItems;
+
+  if (State.currentSection === 'unread') {
+    renderUnreadSection();
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -385,6 +402,10 @@ async function toggleRead(id, markAsRead) {
   try {
     const res = markAsRead ? await api.markRead(id) : await api.markUnread(id);
     const notif = res.data;
+
+    State.notifications = State.notifications.map((item) =>
+      item.id === id ? notif : item
+    );
 
     // Update card in-place
     const card = document.getElementById(`notif-${id}`);
@@ -397,6 +418,10 @@ async function toggleRead(id, markAsRead) {
     State.unreadCount = Math.max(0, State.unreadCount);
     updateBadge();
     updateStats();
+
+    if (State.currentSection === 'unread') {
+      renderUnreadSection();
+    }
   } catch (err) {
     showToastRaw('Error', err.message, 'ERROR', 'NORMAL');
   }
@@ -405,13 +430,23 @@ async function toggleRead(id, markAsRead) {
 async function deleteNotif(id) {
   try {
     await api.deleteNotif(id);
+    const deleted = State.notifications.find((item) => item.id === id);
+    State.notifications = State.notifications.filter((item) => item.id !== id);
     const card = document.getElementById(`notif-${id}`);
     if (card) {
       card.style.animation = 'toast-out 0.2s ease forwards';
       setTimeout(() => card.remove(), 200);
     }
     State.totalItems = Math.max(0, State.totalItems - 1);
+    if (deleted && !deleted.read) {
+      State.unreadCount = Math.max(0, State.unreadCount - 1);
+      updateBadge();
+    }
     updateStats();
+
+    if (State.currentSection === 'unread') {
+      renderUnreadSection();
+    }
   } catch (err) {
     showToastRaw('Error', err.message, 'ERROR', 'NORMAL');
   }
@@ -523,17 +558,16 @@ function showSection(section) {
 
 function renderUnreadSection() {
   const container = document.getElementById('unread-list');
-  // Re-query all current unread items from the main list
-  const unreadCards = document.querySelectorAll('#notif-list .notif-item.unread');
   const emptyEl     = document.getElementById('unread-empty');
+  const unreadItems = State.notifications.filter((item) => !item.read);
 
-  if (unreadCards.length === 0) {
+  if (unreadItems.length === 0) {
     container.innerHTML = '';
     emptyEl.classList.remove('hidden');
     return;
   }
   emptyEl.classList.add('hidden');
-  container.innerHTML = Array.from(unreadCards).map(c => c.outerHTML).join('');
+  container.innerHTML = unreadItems.map((item) => buildNotifCard(item)).join('');
 }
 
 function changePage(delta) {
